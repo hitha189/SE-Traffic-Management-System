@@ -1,6 +1,6 @@
 import sqlite3
 from flask import Flask, request, jsonify
-from werkzeug.security import generate_password_hash
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 DB = "tms.db"
@@ -50,6 +50,27 @@ def register():
         conn.close()
 
     return jsonify({"message": "Account created"}), 201
+
+
+@app.route("/api/login", methods=["POST"])
+def login():
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+
+    if not username or not password:
+        return jsonify({"error": "Username and password required"}), 400
+
+    conn = get_db()
+    user = conn.execute(
+        "SELECT * FROM users WHERE username = ?", (username,)
+    ).fetchone()
+    conn.close()
+
+    if user is None or not check_password_hash(user["password_hash"], password):
+        return jsonify({"error": "Invalid credentials"}), 401
+
+    return jsonify({"message": "Login successful", "role": user["role"]}), 200
 
 
 if __name__ == "__main__":
