@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Traffic Management System</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f4f6f8; }
+    header { background: #1f3a5f; color: #fff; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; }
+    .box { max-width: 360px; margin: 40px auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+    input { width: 100%; padding: 8px; margin: 6px 0; box-sizing: border-box; }
+    button { padding: 8px 14px; margin-top: 6px; cursor: pointer; }
+    #msg { color: #b00020; min-height: 20px; }
+    #app { display: none; }
+    #map { height: 70vh; margin: 10px 20px; border-radius: 8px; }
+    .legend { margin: 0 20px; }
+    .dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin: 0 4px 0 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Traffic Management System</strong>
+    <span id="who"></span>
+  </header>
+
+  <div id="auth" class="box">
+    <h3>Login or Register</h3>
+    <input id="username" placeholder="Username">
+    <input id="email" placeholder="Email (for registration)">
+    <input id="password" type="password" placeholder="Password (min 6 characters)">
+    <button onclick="doLogin()">Login</button>
+    <button onclick="doRegister()">Register</button>
+    <p id="msg"></p>
+  </div>
+
+  <div id="app">
+    <div class="legend">
+      <button onclick="loadTraffic()">Refresh traffic</button>
+      <span class="dot" style="background:#2e7d32"></span>Low
+      <span class="dot" style="background:#f9a825"></span>Medium
+      <span class="dot" style="background:#c62828"></span>High
+    </div>
+    <div id="map"></div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    let token = null, map = null, layer = null;
+    const colors = { Low: "#2e7d32", Medium: "#f9a825", High: "#c62828" };
+    const msg = document.getElementById("msg");
+
+    async function post(url, body) {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      return { status: r.status, data: await r.json() };
+    }
+
+    async function doRegister() {
+      const res = await post("/api/register", {
+        username: username.value, email: email.value, password: password.value
+      });
+      msg.style.color = res.status === 201 ? "#2e7d32" : "#b00020";
+      msg.textContent = res.status === 201 ? "Account created. Now click Login." : res.data.error;
+    }
+
+    async function doLogin() {
+      const res = await post("/api/login", {
+        username: username.value, password: password.value
+      });
+      if (res.status !== 200) {
+        msg.style.color = "#b00020";
+        msg.textContent = res.data.error;
+        return;
+      }
+      token = res.data.token;
+      document.getElementById("who").textContent = username.value + " (" + res.data.role + ")";
+      document.getElementById("auth").style.display = "none";
+      document.getElementById("app").style.display = "block";
+      initMap();
+      loadTraffic();
+    }
+
+    function initMap() {
+      if (map) return;
+      map = L.map("map").setView([12.9716, 77.5946], 12);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap contributors"
+      }).addTo(map);
+      layer = L.layerGroup().addTo(map);
+    }
+
+    async function loadTraffic() {
+      const r = await fetch("/api/traffic", {
+        headers: { Authorization: "Bearer " + token }
+      });
+      if (r.status !== 200) return;
+      const data = await r.json();
+      layer.clearLayers();
+      data.roads.forEach(road => {
+        L.circleMarker([road.lat, road.lng], {
+          radius: 8 + road.density / 8,
+          color: colors[road.congestion],
+          fillColor: colors[road.congestion],
+          fillOpacity: 0.6
+        }).bindPopup(
+          "<b>" + road.name + "</b><br>Congestion: " + road.congestion +
+          "<br>Density: " + road.density + "%"
+        ).addTo(layer);
+      });
+    }
+  </script>
+</body>
+</html>
