@@ -1,9 +1,13 @@
 import sqlite3
+from functools import wraps
 from flask import Flask, request, jsonify
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
+app.config["SECRET_KEY"] = "change-this-secret-for-demo"
 DB = "tms.db"
+TOKEN_MAX_AGE = 3600  # token valid for 1 hour
 
 
 def get_db():
@@ -25,6 +29,37 @@ def init_db():
     )
     conn.commit()
     conn.close()
+
+
+def make_token(username, role):
+    s = URLSafeTimedSerializer(app.config["SECRET_KEY"])
+    return s.dumps({"username": username, "role": role})
+
+
+def read_token():
+    header = request.headers.get("Authorization", "")
+    if not header.startswith("Bearer "):
+        return None
+    s = URLSafeTimedSerializer(app.config["SECRET_KEY"])
+    try:
+        return s.loads(header[7:], max_age=TOKEN_MAX_AGE)
+    except (BadSignature, SignatureExpired):
+        return None
+
+
+def require_role(*roles):
+    """Allow only logged-in users whose role is in `roles`."""
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            user = read_token()
+            if user is None:
+                return jsonify({"error": "Authentication required"}), 401
+            if user["role"] not in roles:
+                return jsonify({"error": "Access denied"}), 403
+            return fn(*args, **kwargs)
+        return wrapper
+    return decorator
 
 
 @app.route("/api/register", methods=["POST"])
@@ -70,7 +105,24 @@ def login():
     if user is None or not check_password_hash(user["password_hash"], password):
         return jsonify({"error": "Invalid credentials"}), 401
 
-    return jsonify({"message": "Login successful", "role": user["role"]}), 200
+    token = make_token(user["username"], user["role"])
+    return jsonify({
+        "message": "Login successful",
+        "role": user["role"],
+        "token": token,
+    }), 200
+
+
+@app.route("/api/admin/ping", methods=["GET"])
+@require_role("admin")
+def admin_ping():
+    return jsonify({"message": "Admin access granted"}), 200
+
+
+@app.route("/api/emergency/ping", methods=["GET"])
+@require_role("emergency", "admin")
+def emergency_ping():
+    return jsonify({"message": "Emergency access granted"}), 200
 
 
 if __name__ == "__main__":
