@@ -4,6 +4,8 @@ from flask import Flask, request, jsonify
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from werkzeug.security import generate_password_hash, check_password_hash
 
+import traffic
+
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "change-this-secret-for-demo"
 DB = "tms.db"
@@ -28,6 +30,7 @@ def init_db():
         )"""
     )
     conn.commit()
+    traffic.init_traffic(conn)
     conn.close()
 
 
@@ -123,6 +126,16 @@ def admin_ping():
 @require_role("emergency", "admin")
 def emergency_ping():
     return jsonify({"message": "Emergency access granted"}), 200
+
+
+@app.route("/api/traffic", methods=["GET"])
+@require_role("user", "admin", "emergency")
+def get_traffic():
+    conn = get_db()
+    traffic.refresh_simulated(conn)
+    roads = traffic.list_roads(conn)
+    conn.close()
+    return jsonify({"roads": roads}), 200
 
 
 if __name__ == "__main__":
