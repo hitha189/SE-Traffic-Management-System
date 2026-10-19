@@ -1,6 +1,6 @@
 import sqlite3
 from functools import wraps
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -63,6 +63,11 @@ def require_role(*roles):
             return fn(*args, **kwargs)
         return wrapper
     return decorator
+
+
+@app.route("/")
+def home():
+    return send_from_directory("static", "index.html")
 
 
 @app.route("/api/register", methods=["POST"])
