@@ -44,6 +44,14 @@
     <div id="map"></div>
 
     <div class="box" style="max-width:600px">
+      <h3>Plan a route</h3>
+      <select id="rsrc"></select>
+      <select id="rdst"></select>
+      <button onclick="planRoute()">Find route</button>
+      <p id="rmsg"></p>
+    </div>
+
+    <div class="box" style="max-width:600px">
       <h3>Report an incident</h3>
       <select id="itype">
         <option>Accident</option>
@@ -60,7 +68,8 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    let token = null, map = null, layer = null;
+    let token = null, map = null, layer = null, routeLine = null;
+    let roadPoints = {};
     const colors = { Low: "#2e7d32", Medium: "#f9a825", High: "#c62828" };
     const msg = document.getElementById("msg");
 
@@ -96,6 +105,7 @@
       document.getElementById("app").style.display = "block";
       initMap();
       loadTraffic();
+      loadPlaces();
     }
 
     function initMap() {
@@ -115,6 +125,7 @@
       const data = await r.json();
       layer.clearLayers();
       data.roads.forEach(road => {
+        roadPoints[road.name] = [road.lat, road.lng];
         L.circleMarker([road.lat, road.lng], {
           radius: 8 + road.density / 8,
           color: colors[road.congestion],
@@ -127,22 +138,69 @@
       });
     }
 
-    async function reportIncident() {
-      const r = await fetch("/api/incidents", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + token
-        },
-        body: JSON.stringify({
-          type: itype.value, location: iloc.value, description: idesc.value
-        })
+    async function loadPlaces() {
+      const r = await fetch("/api/places", {
+        headers: { Authorization: "Bearer " + token }
       });
+      if (r.status !== 200) return;
       const data = await r.json();
+      [rsrc, rdst].forEach(sel => {
+        sel.innerHTML = "";
+        data.places.forEach(p => {
+          const o = document.createElement("option");
+          o.textContent = p;
+          sel.appendChild(o);
+        });
+      });
+      if (rdst.options.length > 1) rdst.selectedIndex = 1;
+    }
+
+    async function planRoute() {
+      const m = document.getElementById("rmsg");
+      try {
+        const url = "/api/route?source=" + encodeURIComponent(rsrc.value) +
+                    "&destination=" + encodeURIComponent(rdst.value);
+        const r = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+        const data = await r.json();
+        if (r.status !== 200) {
+          m.style.color = "#b00020";
+          m.textContent = data.error;
+          return;
+        }
+        m.style.color = "#2e7d32";
+        m.textContent = data.path.join(" → ") + " | " + data.distance_km +
+                        " km | about " + data.eta_minutes + " min";
+        if (routeLine) map.removeLayer(routeLine);
+        const pts = data.path.map(n => roadPoints[n]).filter(Boolean);
+        routeLine = L.polyline(pts, { color: "#1f3a5f", weight: 5 }).addTo(map);
+        map.fitBounds(routeLine.getBounds(), { padding: [40, 40] });
+      } catch (e) {
+        m.style.color = "#b00020";
+        m.textContent = "Server error. Check the terminal.";
+      }
+    }
+
+    async function reportIncident() {
       const m = document.getElementById("imsg");
-      m.style.color = r.status === 201 ? "#2e7d32" : "#b00020";
-      m.textContent = r.status === 201 ? "Incident reported. Thank you." : data.error;
-      if (r.status === 201) { iloc.value = ""; idesc.value = ""; }
+      try {
+        const r = await fetch("/api/incidents", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + token
+          },
+          body: JSON.stringify({
+            type: itype.value, location: iloc.value, description: idesc.value
+          })
+        });
+        const data = await r.json();
+        m.style.color = r.status === 201 ? "#2e7d32" : "#b00020";
+        m.textContent = r.status === 201 ? "Incident reported. Thank you." : data.error;
+        if (r.status === 201) { iloc.value = ""; idesc.value = ""; }
+      } catch (e) {
+        m.style.color = "#b00020";
+        m.textContent = "Server error. Check the terminal.";
+      }
     }
   </script>
 </body>
