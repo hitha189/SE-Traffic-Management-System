@@ -13,6 +13,7 @@ EDGES = [
 ]
 
 AVG_SPEED_KMPH = 30.0
+CONGESTION_PENALTY = 1.5  # a road at 100% density costs 2.5x its distance
 
 
 def build_graph():
@@ -27,24 +28,42 @@ def known_places():
     return sorted(build_graph().keys())
 
 
-def find_route(source, destination):
-    """Shortest route by distance (Dijkstra). Returns None if no route."""
+def edge_cost(km, a, b, density):
+    """Distance made 'longer' by traffic at both ends of the segment."""
+    if not density:
+        return km
+    avg = (density.get(a, 0) + density.get(b, 0)) / 2
+    return km * (1 + CONGESTION_PENALTY * avg / 100)
+
+
+def find_route(source, destination, density=None):
+    """Least-cost route (Dijkstra). `density` maps place name -> 0..100.
+    Returns None if no route."""
     graph = build_graph()
     if source not in graph or destination not in graph:
         return None
 
-    queue = [(0.0, source, [source])]
+    queue = [(0.0, 0.0, source, [source])]
     seen = set()
     while queue:
-        cost, node, path = heapq.heappop(queue)
+        cost, dist, node, path = heapq.heappop(queue)
         if node in seen:
             continue
         seen.add(node)
         if node == destination:
-            minutes = round(cost / AVG_SPEED_KMPH * 60)
-            return {"path": path, "distance_km": round(cost, 1),
-                    "eta_minutes": minutes}
+            return {
+                "path": path,
+                "distance_km": round(dist, 1),
+                "eta_minutes": round(cost / AVG_SPEED_KMPH * 60),
+                "free_flow_minutes": round(dist / AVG_SPEED_KMPH * 60),
+                "congestion_aware": bool(density),
+            }
         for nxt, km in graph[node]:
             if nxt not in seen:
-                heapq.heappush(queue, (cost + km, nxt, path + [nxt]))
+                heapq.heappush(queue, (
+                    cost + edge_cost(km, node, nxt, density),
+                    dist + km,
+                    nxt,
+                    path + [nxt],
+                ))
     return None
