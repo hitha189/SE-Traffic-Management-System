@@ -5,6 +5,7 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from werkzeug.security import generate_password_hash, check_password_hash
 
 import incidents
+import routing
 import traffic
 
 app = Flask(__name__)
@@ -172,6 +173,27 @@ def get_incidents():
     items = incidents.list_incidents(conn)
     conn.close()
     return jsonify({"incidents": items}), 200
+
+
+@app.route("/api/places", methods=["GET"])
+@require_role("user", "admin", "emergency")
+def get_places():
+    return jsonify({"places": routing.known_places()}), 200
+
+
+@app.route("/api/route", methods=["GET"])
+@require_role("user", "admin", "emergency")
+def get_route():
+    source = (request.args.get("source") or "").strip()
+    destination = (request.args.get("destination") or "").strip()
+
+    if not source or not destination or source == destination:
+        return jsonify({"error": "Enter a valid source and destination"}), 400
+
+    route = routing.find_route(source, destination)
+    if route is None:
+        return jsonify({"error": "No route found for these locations"}), 404
+    return jsonify(route), 200
 
 
 if __name__ == "__main__":
