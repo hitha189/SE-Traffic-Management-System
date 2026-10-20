@@ -6,6 +6,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 import incidents
 import routing
+import storage
 import traffic
 
 app = Flask(__name__)
@@ -34,6 +35,7 @@ def init_db():
     conn.commit()
     traffic.init_traffic(conn)
     incidents.init_incidents(conn)
+    storage.init_storage(conn)
     conn.close()
 
 
@@ -130,6 +132,15 @@ def admin_ping():
     return jsonify({"message": "Admin access granted"}), 200
 
 
+@app.route("/api/admin/summary", methods=["GET"])
+@require_role("admin")
+def admin_summary():
+    conn = get_db()
+    counts = storage.summary(conn)
+    conn.close()
+    return jsonify({"records": counts}), 200
+
+
 @app.route("/api/emergency/ping", methods=["GET"])
 @require_role("emergency", "admin")
 def emergency_ping():
@@ -192,13 +203,25 @@ def get_route():
 
     conn = get_db()
     roads = traffic.list_roads(conn)
-    conn.close()
     density = {r["name"]: r["density"] for r in roads}
 
     route = routing.find_route(source, destination, density)
     if route is None:
+        conn.close()
         return jsonify({"error": "No route found for these locations"}), 404
+
+    storage.save_route(conn, read_token()["username"], source, destination, route)
+    conn.close()
     return jsonify(route), 200
+
+
+@app.route("/api/routes/history", methods=["GET"])
+@require_role("user", "admin", "emergency")
+def route_history():
+    conn = get_db()
+    items = storage.list_routes(conn, read_token()["username"])
+    conn.close()
+    return jsonify({"routes": items}), 200
 
 
 if __name__ == "__main__":
