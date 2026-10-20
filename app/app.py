@@ -190,7 +190,12 @@ def get_route():
     if not source or not destination or source == destination:
         return jsonify({"error": "Enter a valid source and destination"}), 400
 
-    route = routing.find_route(source, destination)
+    conn = get_db()
+    roads = traffic.list_roads(conn)
+    conn.close()
+    density = {r["name"]: r["density"] for r in roads}
+
+    route = routing.find_route(source, destination, density)
     if route is None:
         return jsonify({"error": "No route found for these locations"}), 404
     return jsonify(route), 200

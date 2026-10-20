@@ -169,7 +169,8 @@
         }
         m.style.color = "#2e7d32";
         m.textContent = data.path.join(" → ") + " | " + data.distance_km +
-                        " km | about " + data.eta_minutes + " min";
+                        " km | about " + data.eta_minutes + " min (" +
+                        data.free_flow_minutes + " min without traffic)";
         if (routeLine) map.removeLayer(routeLine);
         const pts = data.path.map(n => roadPoints[n]).filter(Boolean);
         routeLine = L.polyline(pts, { color: "#1f3a5f", weight: 5 }).addTo(map);
