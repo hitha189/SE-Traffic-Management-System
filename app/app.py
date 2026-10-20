@@ -1,4 +1,6 @@
+import os
 import sqlite3
+import time
 from functools import wraps
 from flask import Flask, request, jsonify, send_from_directory
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
@@ -10,9 +12,14 @@ import storage
 import traffic
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "change-this-secret-for-demo"
+app.config["SECRET_KEY"] = os.environ.get(
+    "TMS_SECRET_KEY", "change-this-secret-for-demo")
 DB = "tms.db"
 TOKEN_MAX_AGE = 3600  # token valid for 1 hour
+
+MAX_FAILED_LOGINS = 5
+LOCKOUT_SECONDS = 300  # 5 minutes
+FAILED_LOGINS = {}  # username -> (failed count, time of first failure)
 
 
 def get_db():
@@ -70,6 +77,34 @@ def require_role(*roles):
     return decorator
 
 
+def is_locked(username):
+    entry = FAILED_LOGINS.get(username)
+    if not entry:
+        return False
+    count, first = entry
+    if time.time() - first > LOCKOUT_SECONDS:
+        FAILED_LOGINS.pop(username, None)
+        return False
+    return count >= MAX_FAILED_LOGINS
+
+
+def record_failure(username):
+    now = time.time()
+    count, first = FAILED_LOGINS.get(username, (0, now))
+    if now - first > LOCKOUT_SECONDS:
+        count, first = 0, now
+    FAILED_LOGINS[username] = (count + 1, first)
+
+
+@app.after_request
+def add_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    if request.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.route("/")
 def home():
     return send_from_directory("static", "index.html")
@@ -109,6 +144,11 @@ def login():
     if not username or not password:
         return jsonify({"error": "Username and password required"}), 400
 
+    if is_locked(username):
+        return jsonify({
+            "error": "Too many failed attempts. Try again in a few minutes."
+        }), 429
+
     conn = get_db()
     user = conn.execute(
         "SELECT * FROM users WHERE username = ?", (username,)
@@ -116,8 +156,10 @@ def login():
     conn.close()
 
     if user is None or not check_password_hash(user["password_hash"], password):
+        record_failure(username)
         return jsonify({"error": "Invalid credentials"}), 401
 
+    FAILED_LOGINS.pop(username, None)
     token = make_token(user["username"], user["role"])
     return jsonify({
         "message": "Login successful",
