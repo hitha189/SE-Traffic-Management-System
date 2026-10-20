@@ -6,32 +6,51 @@
   <title>Traffic Management System</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; background: #f4f6f8; }
-    header { background: #1f3a5f; color: #fff; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; }
-    .box { max-width: 360px; margin: 40px auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,.15); }
-    input, select { width: 100%; padding: 8px; margin: 6px 0; box-sizing: border-box; }
-    button { padding: 8px 14px; margin-top: 6px; cursor: pointer; }
-    #msg { color: #b00020; min-height: 20px; }
+    body { font-family: Arial, sans-serif; font-size: 16px; margin: 0; background: #f4f6f8; color: #222; }
+    header { background: #1f3a5f; color: #fff; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+    header .right { display: flex; align-items: center; gap: 10px; }
+    .box { max-width: 360px; margin: 24px auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+    .box.wide { max-width: 600px; }
+    .help { color: #555; font-size: 14px; margin: 0 0 8px; }
+    label { display: block; font-weight: bold; margin-top: 8px; }
+    input, select { width: 100%; padding: 10px; margin: 4px 0; box-sizing: border-box; font-size: 16px; }
+    button { padding: 10px 16px; margin-top: 8px; cursor: pointer; font-size: 16px; border: 0; border-radius: 6px; background: #1f3a5f; color: #fff; }
+    button.secondary { background: #e0e4ea; color: #1f3a5f; }
+    button:hover { opacity: .9; }
+    button:focus, input:focus, select:focus { outline: 3px solid #f9a825; }
+    #msg { color: #b00020; min-height: 22px; }
     #app { display: none; }
-    #map { height: 70vh; margin: 10px 20px; border-radius: 8px; }
-    .legend { margin: 0 20px; }
-    .dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin: 0 4px 0 12px; }
+    #map { height: 60vh; margin: 10px 20px; border-radius: 8px; }
+    .legend { margin: 10px 20px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+    .dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; margin: 0 4px 0 12px; }
+    .status { min-height: 22px; font-weight: bold; }
+    @media (max-width: 600px) {
+      #map { height: 50vh; margin: 10px 8px; }
+      .box { margin: 12px 8px; }
+    }
   </style>
 </head>
 <body>
   <header>
     <strong>Traffic Management System</strong>
-    <span id="who"></span>
+    <span class="right">
+      <span id="who"></span>
+      <button id="logoutBtn" class="secondary" style="display:none" onclick="doLogout()">Logout</button>
+    </span>
   </header>
 
   <div id="auth" class="box">
-    <h3>Login or Register</h3>
-    <input id="username" placeholder="Username">
-    <input id="email" placeholder="Email (for registration)">
-    <input id="password" type="password" placeholder="Password (min 6 characters)">
+    <h3>Welcome</h3>
+    <p class="help">New here? Fill in all three boxes and click Register. Already registered? Enter your username and password and click Login.</p>
+    <label for="username">Username</label>
+    <input id="username" autocomplete="username">
+    <label for="email">Email (only needed to register)</label>
+    <input id="email" autocomplete="email">
+    <label for="password">Password (at least 6 characters)</label>
+    <input id="password" type="password" autocomplete="current-password">
     <button onclick="doLogin()">Login</button>
-    <button onclick="doRegister()">Register</button>
-    <p id="msg"></p>
+    <button class="secondary" onclick="doRegister()">Register</button>
+    <p id="msg" class="status"></p>
   </div>
 
   <div id="app">
@@ -40,29 +59,38 @@
       <span class="dot" style="background:#2e7d32"></span>Low
       <span class="dot" style="background:#f9a825"></span>Medium
       <span class="dot" style="background:#c62828"></span>High
+      <span id="tmsg" class="help"></span>
     </div>
+    <p class="help" style="margin:0 20px">Click a circle on the map to see the road name, congestion and density. Bigger circles mean heavier traffic.</p>
     <div id="map"></div>
 
-    <div class="box" style="max-width:600px">
+    <div class="box wide">
       <h3>Plan a route</h3>
+      <p class="help">Choose where you start and where you want to go. The route avoids busy roads when it can.</p>
+      <label for="rsrc">From</label>
       <select id="rsrc"></select>
+      <label for="rdst">To</label>
       <select id="rdst"></select>
       <button onclick="planRoute()">Find route</button>
-      <p id="rmsg"></p>
+      <p id="rmsg" class="status"></p>
     </div>
 
-    <div class="box" style="max-width:600px">
+    <div class="box wide">
       <h3>Report an incident</h3>
+      <p class="help">Tell other drivers about an accident, roadblock or hazard.</p>
+      <label for="itype">Type of incident</label>
       <select id="itype">
         <option>Accident</option>
         <option>Roadblock</option>
         <option>Hazard</option>
         <option>Other</option>
       </select>
-      <input id="iloc" placeholder="Location (e.g. MG Road)">
-      <input id="idesc" placeholder="Description">
+      <label for="iloc">Location</label>
+      <input id="iloc" placeholder="For example: MG Road">
+      <label for="idesc">What happened?</label>
+      <input id="idesc" placeholder="For example: Two vehicles blocking lane">
       <button onclick="reportIncident()">Submit report</button>
-      <p id="imsg"></p>
+      <p id="imsg" class="status"></p>
     </div>
   </div>
 
@@ -72,6 +100,12 @@
     let roadPoints = {};
     const colors = { Low: "#2e7d32", Medium: "#f9a825", High: "#c62828" };
     const msg = document.getElementById("msg");
+
+    ["username", "email", "password"].forEach(id => {
+      document.getElementById(id).addEventListener("keydown", e => {
+        if (e.key === "Enter") doLogin();
+      });
+    });
 
     async function post(url, body) {
       const r = await fetch(url, {
@@ -83,29 +117,56 @@
     }
 
     async function doRegister() {
-      const res = await post("/api/register", {
-        username: username.value, email: email.value, password: password.value
-      });
-      msg.style.color = res.status === 201 ? "#2e7d32" : "#b00020";
-      msg.textContent = res.status === 201 ? "Account created. Now click Login." : res.data.error;
+      msg.style.color = "#555";
+      msg.textContent = "Please wait...";
+      try {
+        const res = await post("/api/register", {
+          username: username.value, email: email.value, password: password.value
+        });
+        msg.style.color = res.status === 201 ? "#2e7d32" : "#b00020";
+        msg.textContent = res.status === 201 ? "Account created. Now click Login." : res.data.error;
+      } catch (e) {
+        msg.style.color = "#b00020";
+        msg.textContent = "Cannot reach the server. Please try again.";
+      }
     }
 
     async function doLogin() {
-      const res = await post("/api/login", {
-        username: username.value, password: password.value
-      });
-      if (res.status !== 200) {
+      msg.style.color = "#555";
+      msg.textContent = "Logging in...";
+      try {
+        const res = await post("/api/login", {
+          username: username.value, password: password.value
+        });
+        if (res.status !== 200) {
+          msg.style.color = "#b00020";
+          msg.textContent = res.data.error;
+          return;
+        }
+        token = res.data.token;
+        document.getElementById("who").textContent = username.value + " (" + res.data.role + ")";
+        document.getElementById("logoutBtn").style.display = "inline-block";
+        document.getElementById("auth").style.display = "none";
+        document.getElementById("app").style.display = "block";
+        msg.textContent = "";
+        initMap();
+        loadTraffic();
+        loadPlaces();
+      } catch (e) {
         msg.style.color = "#b00020";
-        msg.textContent = res.data.error;
-        return;
+        msg.textContent = "Cannot reach the server. Please try again.";
       }
-      token = res.data.token;
-      document.getElementById("who").textContent = username.value + " (" + res.data.role + ")";
-      document.getElementById("auth").style.display = "none";
-      document.getElementById("app").style.display = "block";
-      initMap();
-      loadTraffic();
-      loadPlaces();
+    }
+
+    function doLogout() {
+      token = null;
+      password.value = "";
+      document.getElementById("who").textContent = "";
+      document.getElementById("logoutBtn").style.display = "none";
+      document.getElementById("app").style.display = "none";
+      document.getElementById("auth").style.display = "block";
+      msg.style.color = "#2e7d32";
+      msg.textContent = "You have been logged out.";
     }
 
     function initMap() {
@@ -118,24 +179,34 @@
     }
 
     async function loadTraffic() {
-      const r = await fetch("/api/traffic", {
-        headers: { Authorization: "Bearer " + token }
-      });
-      if (r.status !== 200) return;
-      const data = await r.json();
-      layer.clearLayers();
-      data.roads.forEach(road => {
-        roadPoints[road.name] = [road.lat, road.lng];
-        L.circleMarker([road.lat, road.lng], {
-          radius: 8 + road.density / 8,
-          color: colors[road.congestion],
-          fillColor: colors[road.congestion],
-          fillOpacity: 0.6
-        }).bindPopup(
-          "<b>" + road.name + "</b><br>Congestion: " + road.congestion +
-          "<br>Density: " + road.density + "%"
-        ).addTo(layer);
-      });
+      const t = document.getElementById("tmsg");
+      t.textContent = "Updating...";
+      try {
+        const r = await fetch("/api/traffic", {
+          headers: { Authorization: "Bearer " + token }
+        });
+        if (r.status !== 200) {
+          t.textContent = "Please log in again.";
+          return;
+        }
+        const data = await r.json();
+        layer.clearLayers();
+        data.roads.forEach(road => {
+          roadPoints[road.name] = [road.lat, road.lng];
+          L.circleMarker([road.lat, road.lng], {
+            radius: 8 + road.density / 8,
+            color: colors[road.congestion],
+            fillColor: colors[road.congestion],
+            fillOpacity: 0.6
+          }).bindPopup(
+            "<b>" + road.name + "</b><br>Congestion: " + road.congestion +
+            "<br>Density: " + road.density + "%"
+          ).addTo(layer);
+        });
+        t.textContent = "Updated at " + new Date().toLocaleTimeString();
+      } catch (e) {
+        t.textContent = "Could not update traffic.";
+      }
     }
 
     async function loadPlaces() {
@@ -157,6 +228,8 @@
 
     async function planRoute() {
       const m = document.getElementById("rmsg");
+      m.style.color = "#555";
+      m.textContent = "Finding the best route...";
       try {
         const url = "/api/route?source=" + encodeURIComponent(rsrc.value) +
                     "&destination=" + encodeURIComponent(rdst.value);
@@ -177,12 +250,14 @@
         map.fitBounds(routeLine.getBounds(), { padding: [40, 40] });
       } catch (e) {
         m.style.color = "#b00020";
-        m.textContent = "Server error. Check the terminal.";
+        m.textContent = "Something went wrong. Please try again.";
       }
     }
 
     async function reportIncident() {
       const m = document.getElementById("imsg");
+      m.style.color = "#555";
+      m.textContent = "Sending...";
       try {
         const r = await fetch("/api/incidents", {
           method: "POST",
@@ -200,7 +275,7 @@
         if (r.status === 201) { iloc.value = ""; idesc.value = ""; }
       } catch (e) {
         m.style.color = "#b00020";
-        m.textContent = "Server error. Check the terminal.";
+        m.textContent = "Something went wrong. Please try again.";
       }
     }
   </script>
