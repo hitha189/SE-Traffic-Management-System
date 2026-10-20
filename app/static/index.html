@@ -9,7 +9,7 @@
     body { font-family: Arial, sans-serif; margin: 0; background: #f4f6f8; }
     header { background: #1f3a5f; color: #fff; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; }
     .box { max-width: 360px; margin: 40px auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,.15); }
-    input { width: 100%; padding: 8px; margin: 6px 0; box-sizing: border-box; }
+    input, select { width: 100%; padding: 8px; margin: 6px 0; box-sizing: border-box; }
     button { padding: 8px 14px; margin-top: 6px; cursor: pointer; }
     #msg { color: #b00020; min-height: 20px; }
     #app { display: none; }
@@ -42,6 +42,20 @@
       <span class="dot" style="background:#c62828"></span>High
     </div>
     <div id="map"></div>
+
+    <div class="box" style="max-width:600px">
+      <h3>Report an incident</h3>
+      <select id="itype">
+        <option>Accident</option>
+        <option>Roadblock</option>
+        <option>Hazard</option>
+        <option>Other</option>
+      </select>
+      <input id="iloc" placeholder="Location (e.g. MG Road)">
+      <input id="idesc" placeholder="Description">
+      <button onclick="reportIncident()">Submit report</button>
+      <p id="imsg"></p>
+    </div>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -111,6 +125,24 @@
           "<br>Density: " + road.density + "%"
         ).addTo(layer);
       });
+    }
+
+    async function reportIncident() {
+      const r = await fetch("/api/incidents", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token
+        },
+        body: JSON.stringify({
+          type: itype.value, location: iloc.value, description: idesc.value
+        })
+      });
+      const data = await r.json();
+      const m = document.getElementById("imsg");
+      m.style.color = r.status === 201 ? "#2e7d32" : "#b00020";
+      m.textContent = r.status === 201 ? "Incident reported. Thank you." : data.error;
+      if (r.status === 201) { iloc.value = ""; idesc.value = ""; }
     }
   </script>
 </body>

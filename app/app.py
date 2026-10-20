@@ -4,6 +4,7 @@ from flask import Flask, request, jsonify, send_from_directory
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from werkzeug.security import generate_password_hash, check_password_hash
 
+import incidents
 import traffic
 
 app = Flask(__name__)
@@ -31,6 +32,7 @@ def init_db():
     )
     conn.commit()
     traffic.init_traffic(conn)
+    incidents.init_incidents(conn)
     conn.close()
 
 
@@ -141,6 +143,35 @@ def get_traffic():
     roads = traffic.list_roads(conn)
     conn.close()
     return jsonify({"roads": roads}), 200
+
+
+@app.route("/api/incidents", methods=["POST"])
+@require_role("user", "admin", "emergency")
+def report_incident():
+    data = request.get_json(silent=True) or {}
+    incident_type = (data.get("type") or "").strip()
+    location = (data.get("location") or "").strip()
+    description = (data.get("description") or "").strip()
+
+    if (incident_type not in incidents.INCIDENT_TYPES
+            or not location or not description
+            or len(location) > 100 or len(description) > 500):
+        return jsonify({"error": "Invalid or missing incident details"}), 400
+
+    conn = get_db()
+    new_id = incidents.add_incident(
+        conn, incident_type, location, description, read_token()["username"])
+    conn.close()
+    return jsonify({"message": "Incident reported", "id": new_id}), 201
+
+
+@app.route("/api/incidents", methods=["GET"])
+@require_role("user", "admin", "emergency")
+def get_incidents():
+    conn = get_db()
+    items = incidents.list_incidents(conn)
+    conn.close()
+    return jsonify({"incidents": items}), 200
 
 
 if __name__ == "__main__":
