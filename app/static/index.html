@@ -24,6 +24,22 @@
     .legend { margin: 10px 20px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
     .dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; margin: 0 4px 0 12px; }
     .status { min-height: 22px; font-weight: bold; }
+    .alert { border-left: 6px solid #c62828; background: #fdecea; padding: 8px 10px; margin: 6px 0; border-radius: 4px; }
+    .alert.Congestion { border-color: #f9a825; background: #fff8e1; }
+    .alert.Hazard { border-color: #ef6c00; background: #fff3e0; }
+    .alert.Closure { border-color: #6a1b9a; background: #f3e5f5; }
+    .note { background: #e8f0fe; border-radius: 4px; padding: 8px 10px; margin: 6px 0; }
+    .note.read { background: #f1f1f1; color: #666; }
+    .tag { display: inline-block; padding: 2px 10px; border-radius: 12px; color: #fff; font-weight: bold; }
+    .tag.Red { background: #c62828; } .tag.Yellow { background: #f9a825; color: #222; } .tag.Green { background: #2e7d32; }
+    .tag.Reported { background: #1565c0; } .tag.Verified { background: #2e7d32; } .tag.Closed { background: #757575; } .tag.Active { background: #c62828; } .tag.Completed { background: #757575; }
+    table { width: 100%; border-collapse: collapse; font-size: 15px; }
+    th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #ddd; vertical-align: middle; }
+    td select { width: auto; margin: 0 4px 0 0; padding: 6px; }
+    button.small { padding: 5px 10px; margin: 2px 4px 2px 0; font-size: 14px; }
+    .checks label { display: inline-block; font-weight: normal; margin-right: 14px; }
+    .checks input { width: auto; margin-right: 4px; }
+    .scroll { max-height: 260px; overflow-y: auto; overflow-x: auto; }
     @media (max-width: 600px) {
       #map { height: 50vh; margin: 10px 8px; }
       .box { margin: 12px 8px; }
@@ -92,11 +108,66 @@
       <button onclick="reportIncident()">Submit report</button>
       <p id="imsg" class="status"></p>
     </div>
+
+    <div class="box wide">
+      <h3>Traffic alerts</h3>
+      <p class="help">Current congestion, accidents, closures and hazards.</p>
+      <button class="secondary" onclick="loadAlerts()">Refresh alerts</button>
+      <div id="alertList"></div>
+    </div>
+
+    <div class="box wide">
+      <h3>Notifications</h3>
+      <p class="help">Tick the areas you care about and click Save. You will be told about events in those areas and the areas next to them.</p>
+      <div id="areaChecks" class="checks"></div>
+      <button onclick="saveAreas()">Save my areas</button>
+      <button class="secondary" onclick="loadNotifications()">Check for new notifications</button>
+      <p id="nmsg" class="status"></p>
+      <div id="noteList"></div>
+    </div>
+
+    <div id="emergencyPanel" class="box wide" style="display:none">
+      <h3>Emergency vehicle priority</h3>
+      <p class="help">Enter your vehicle ID and trip. You get the fastest route and the signals on it turn green.</p>
+      <label for="evid">Vehicle ID</label>
+      <input id="evid" placeholder="For example: AMB-101">
+      <label for="esrc">From</label>
+      <select id="esrc"></select>
+      <label for="edst">To</label>
+      <select id="edst"></select>
+      <button class="secondary" onclick="previewEmergencyRoute()">Preview route</button>
+      <button onclick="requestPriority()">Request priority</button>
+      <p id="emsg" class="status"></p>
+      <h4>My priority requests</h4>
+      <div id="reqList" class="scroll"></div>
+    </div>
+
+    <div id="adminPanel" style="display:none">
+      <div class="box wide">
+        <h3>Admin: traffic signals</h3>
+        <p class="help">Choose a new colour for a signal and click Set. Every change is recorded in the audit log.</p>
+        <div id="signalTable" class="scroll"></div>
+        <p id="smsg" class="status"></p>
+      </div>
+      <div class="box wide">
+        <h3>Admin: manage incidents</h3>
+        <p class="help">Verify a report, edit its description, or close it when it is resolved.</p>
+        <button class="secondary" onclick="loadIncidentsAdmin()">Refresh incidents</button>
+        <div id="incTable" class="scroll"></div>
+        <p id="mmsg" class="status"></p>
+      </div>
+      <div class="box wide">
+        <h3>Admin: audit log</h3>
+        <p class="help">Who did what and when. Entries cannot be changed or deleted.</p>
+        <button class="secondary" onclick="loadAudit()">Refresh log</button>
+        <div id="auditTable" class="scroll"></div>
+      </div>
+    </div>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    let token = null, map = null, layer = null, routeLine = null;
+    let token = null, role = null, map = null, layer = null, routeLine = null;
     let roadPoints = {};
     const colors = { Low: "#2e7d32", Medium: "#f9a825", High: "#c62828" };
     const msg = document.getElementById("msg");
@@ -144,14 +215,21 @@
           return;
         }
         token = res.data.token;
+        role = res.data.role;
         document.getElementById("who").textContent = username.value + " (" + res.data.role + ")";
         document.getElementById("logoutBtn").style.display = "inline-block";
         document.getElementById("auth").style.display = "none";
         document.getElementById("app").style.display = "block";
         msg.textContent = "";
         initMap();
-        loadTraffic();
+        await loadTraffic();
         loadPlaces();
+        loadAreas();
+        loadNotifications();
+        document.getElementById("adminPanel").style.display = role === "admin" ? "block" : "none";
+        document.getElementById("emergencyPanel").style.display = role === "emergency" ? "block" : "none";
+        if (role === "admin") { loadSignals(); loadIncidentsAdmin(); loadAudit(); }
+        if (role === "emergency") loadMyRequests();
       } catch (e) {
         msg.style.color = "#b00020";
         msg.textContent = "Cannot reach the server. Please try again.";
@@ -160,6 +238,7 @@
 
     function doLogout() {
       token = null;
+      role = null;
       password.value = "";
       document.getElementById("who").textContent = "";
       document.getElementById("logoutBtn").style.display = "none";
@@ -204,6 +283,7 @@
           ).addTo(layer);
         });
         t.textContent = "Updated at " + new Date().toLocaleTimeString();
+        loadAlerts();
       } catch (e) {
         t.textContent = "Could not update traffic.";
       }
@@ -215,7 +295,7 @@
       });
       if (r.status !== 200) return;
       const data = await r.json();
-      [rsrc, rdst].forEach(sel => {
+      [rsrc, rdst, esrc, edst].forEach(sel => {
         sel.innerHTML = "";
         data.places.forEach(p => {
           const o = document.createElement("option");
@@ -224,6 +304,7 @@
         });
       });
       if (rdst.options.length > 1) rdst.selectedIndex = 1;
+      if (edst.options.length > 1) edst.selectedIndex = 1;
     }
 
     async function planRoute() {
@@ -277,6 +358,260 @@
         m.style.color = "#b00020";
         m.textContent = "Something went wrong. Please try again.";
       }
+    }
+
+    // ---------- Sprint 2 helpers ----------
+    async function api(method, url, body) {
+      const opts = { method, headers: { Authorization: "Bearer " + token } };
+      if (body !== undefined) {
+        opts.headers["Content-Type"] = "application/json";
+        opts.body = JSON.stringify(body);
+      }
+      const r = await fetch(url, opts);
+      let data = {};
+      try { data = await r.json(); } catch (e) {}
+      return { status: r.status, data };
+    }
+
+    // Build elements with textContent so user-written text can never run as HTML.
+    function el(tag, text, cls) {
+      const e = document.createElement(tag);
+      if (text != null) e.textContent = text;
+      if (cls) e.className = cls;
+      return e;
+    }
+
+    function say(id, text, ok) {
+      const m = document.getElementById(id);
+      m.style.color = ok ? "#2e7d32" : "#b00020";
+      m.textContent = text;
+    }
+
+    function btn(label, onclick, cls) {
+      const b = el("button", label, "small " + (cls || ""));
+      b.onclick = onclick;
+      return b;
+    }
+
+    function drawRoute(path, color) {
+      if (routeLine) map.removeLayer(routeLine);
+      const pts = path.map(n => roadPoints[n]).filter(Boolean);
+      routeLine = L.polyline(pts, { color: color, weight: 5 }).addTo(map);
+      map.fitBounds(routeLine.getBounds(), { padding: [40, 40] });
+    }
+
+    // ---------- Alerts (FR-10) ----------
+    async function loadAlerts() {
+      const res = await api("GET", "/api/alerts");
+      if (res.status !== 200) return;
+      const box = document.getElementById("alertList");
+      box.replaceChildren();
+      if (!res.data.alerts.length) {
+        box.appendChild(el("p", "No active alerts.", "help"));
+        return;
+      }
+      res.data.alerts.forEach(a => {
+        const row = el("div", null, "alert " + a.kind);
+        row.appendChild(el("b", a.kind + " at " + a.location + ": "));
+        row.appendChild(el("span", a.message));
+        box.appendChild(row);
+      });
+    }
+
+    // ---------- Areas and notifications (FR-11) ----------
+    async function loadAreas() {
+      const res = await api("GET", "/api/subscriptions");
+      if (res.status !== 200) return;
+      const box = document.getElementById("areaChecks");
+      box.replaceChildren();
+      res.data.available.forEach(area => {
+        const label = el("label");
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.value = area;
+        cb.checked = res.data.areas.includes(area);
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(area));
+        box.appendChild(label);
+      });
+    }
+
+    async function saveAreas() {
+      const areas = [...document.querySelectorAll("#areaChecks input:checked")].map(c => c.value);
+      const res = await api("PUT", "/api/subscriptions", { areas });
+      say("nmsg", res.status === 200 ? "Saved. You will be notified about " + (areas.join(", ") || "no areas") + "." : res.data.error, res.status === 200);
+    }
+
+    async function loadNotifications() {
+      const res = await api("GET", "/api/notifications");
+      if (res.status !== 200) return;
+      const box = document.getElementById("noteList");
+      box.replaceChildren();
+      if (!res.data.notifications.length) {
+        box.appendChild(el("p", "No notifications yet.", "help"));
+        return;
+      }
+      res.data.notifications.forEach(n => {
+        const row = el("div", null, "note" + (n.is_read ? " read" : ""));
+        row.appendChild(el("span", n.message + " (" + n.created_at + " UTC) "));
+        if (!n.is_read) {
+          row.appendChild(btn("Mark as read", async () => {
+            await api("POST", "/api/notifications/" + n.id + "/read");
+            loadNotifications();
+          }, "secondary"));
+        }
+        box.appendChild(row);
+      });
+    }
+
+    // ---------- Admin: signals (FR-06, FR-07) ----------
+    async function loadSignals() {
+      const res = await api("GET", "/api/signals");
+      if (res.status !== 200) return;
+      const table = el("table");
+      const head = el("tr");
+      ["Location", "State", "Last changed by", "Change to"].forEach(h => head.appendChild(el("th", h)));
+      table.appendChild(head);
+      res.data.signals.forEach(sig => {
+        const tr = el("tr");
+        tr.appendChild(el("td", sig.location));
+        const st = el("td");
+        st.appendChild(el("span", sig.state, "tag " + sig.state));
+        tr.appendChild(st);
+        tr.appendChild(el("td", sig.updated_by));
+        const act = el("td");
+        const sel = document.createElement("select");
+        sel.setAttribute("aria-label", "New state for " + sig.location);
+        res.data.states.forEach(s => {
+          const o = el("option", s);
+          if (s === sig.state) o.selected = true;
+          sel.appendChild(o);
+        });
+        act.appendChild(sel);
+        act.appendChild(btn("Set", async () => {
+          const r = await api("PUT", "/api/signals/" + sig.id, { state: sel.value });
+          say("smsg", r.status === 200 ? sig.location + " is now " + sel.value + "." : r.data.error, r.status === 200);
+          loadSignals();
+          loadAudit();
+        }));
+        tr.appendChild(act);
+        table.appendChild(tr);
+      });
+      document.getElementById("signalTable").replaceChildren(table);
+    }
+
+    // ---------- Admin: incidents (FR-09) ----------
+    async function manage(id, body) {
+      const r = await api("PATCH", "/api/incidents/" + id, body);
+      say("mmsg", r.status === 200 ? "Incident " + id + " is now " + r.data.incident.status + "." : r.data.error, r.status === 200);
+      loadIncidentsAdmin();
+      loadAlerts();
+      loadAudit();
+    }
+
+    async function loadIncidentsAdmin() {
+      const res = await api("GET", "/api/incidents");
+      if (res.status !== 200) return;
+      const table = el("table");
+      const head = el("tr");
+      ["#", "Type", "Location", "Details", "Status", "Actions"].forEach(h => head.appendChild(el("th", h)));
+      table.appendChild(head);
+      res.data.incidents.forEach(inc => {
+        const tr = el("tr");
+        tr.appendChild(el("td", inc.id));
+        tr.appendChild(el("td", inc.type));
+        tr.appendChild(el("td", inc.location));
+        tr.appendChild(el("td", inc.description));
+        const st = el("td");
+        st.appendChild(el("span", inc.status, "tag " + inc.status));
+        tr.appendChild(st);
+        const act = el("td");
+        if (inc.status === "Reported") act.appendChild(btn("Verify", () => manage(inc.id, { action: "verify" })));
+        if (inc.status !== "Closed") {
+          act.appendChild(btn("Edit", () => {
+            const d = prompt("New description:", inc.description);
+            if (d !== null) manage(inc.id, { action: "update", description: d });
+          }, "secondary"));
+          act.appendChild(btn("Close", () => manage(inc.id, { action: "close" }), "secondary"));
+        }
+        tr.appendChild(act);
+        table.appendChild(tr);
+      });
+      document.getElementById("incTable").replaceChildren(table);
+    }
+
+    // ---------- Admin: audit log (FR-20, NFR-12) ----------
+    async function loadAudit() {
+      const res = await api("GET", "/api/admin/audit?limit=50");
+      if (res.status !== 200) return;
+      const table = el("table");
+      const head = el("tr");
+      ["When (UTC)", "Who", "Action", "Target", "Details"].forEach(h => head.appendChild(el("th", h)));
+      table.appendChild(head);
+      res.data.entries.forEach(e => {
+        const tr = el("tr");
+        [e.created_at, e.actor, e.action, e.target, e.details].forEach(v => tr.appendChild(el("td", v)));
+        table.appendChild(tr);
+      });
+      document.getElementById("auditTable").replaceChildren(table);
+    }
+
+    // ---------- Emergency (FR-14, FR-15) ----------
+    function describeRoute(r) {
+      return r.path.join(" → ") + " | " + r.distance_km + " km | about " + r.eta_minutes +
+             " min (normal traffic route: " + r.normal_eta_minutes + " min)" +
+             (r.avoided.length ? " | avoiding roadblock at " + r.avoided.join(", ") : "");
+    }
+
+    async function previewEmergencyRoute() {
+      const url = "/api/emergency/route?source=" + encodeURIComponent(esrc.value) +
+                  "&destination=" + encodeURIComponent(edst.value);
+      const res = await api("GET", url);
+      if (res.status !== 200) { say("emsg", res.data.error, false); return; }
+      say("emsg", describeRoute(res.data), true);
+      drawRoute(res.data.path, "#c62828");
+    }
+
+    async function requestPriority() {
+      const res = await api("POST", "/api/emergency/priority", {
+        vehicle_id: evid.value, source: esrc.value, destination: edst.value
+      });
+      if (res.status !== 201) { say("emsg", res.data.error, false); return; }
+      say("emsg", "Priority granted. " + describeRoute(res.data.route) +
+          (res.data.signals_cleared.length ? " | Signals turned green: " + res.data.signals_cleared.join(", ") : " | All signals were already green"), true);
+      drawRoute(res.data.route.path, "#c62828");
+      loadMyRequests();
+    }
+
+    async function loadMyRequests() {
+      const res = await api("GET", "/api/emergency/requests");
+      if (res.status !== 200) return;
+      const box = document.getElementById("reqList");
+      box.replaceChildren();
+      if (!res.data.requests.length) { box.appendChild(el("p", "No requests yet.", "help")); return; }
+      const table = el("table");
+      const head = el("tr");
+      ["Vehicle", "Trip", "Status", ""].forEach(h => head.appendChild(el("th", h)));
+      table.appendChild(head);
+      res.data.requests.forEach(q => {
+        const tr = el("tr");
+        tr.appendChild(el("td", q.vehicle_id));
+        tr.appendChild(el("td", q.source + " → " + q.destination));
+        const st = el("td");
+        st.appendChild(el("span", q.status, "tag " + q.status));
+        tr.appendChild(st);
+        const act = el("td");
+        if (q.status === "Active") {
+          act.appendChild(btn("Trip finished", async () => {
+            const r = await api("POST", "/api/emergency/requests/" + q.id + "/complete");
+            say("emsg", r.status === 200 ? "Priority ended. Signals restored: " + (r.data.signals_restored.join(", ") || "none") : r.data.error, r.status === 200);
+            loadMyRequests();
+          }, "secondary"));
+        }
+        tr.appendChild(act);
+        table.appendChild(tr);
+      });
+      box.appendChild(table);
     }
   </script>
 </body>
