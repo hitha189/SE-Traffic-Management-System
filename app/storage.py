@@ -1,6 +1,8 @@
 import json
 
-COUNTED_TABLES = ["users", "roads", "incidents", "routes"]
+COUNTED_TABLES = ["users", "roads", "incidents", "routes", "signals",
+                  "alerts", "notifications", "emergency_requests",
+                  "audit_log"]
 
 
 def init_storage(conn):

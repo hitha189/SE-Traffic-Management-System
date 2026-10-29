@@ -16,13 +16,15 @@ def init_incidents(conn):
     conn.commit()
 
 
-def add_incident(conn, incident_type, location, description, reported_by):
+def add_incident(conn, incident_type, location, description, reported_by,
+                 commit=True):
     cur = conn.execute(
         "INSERT INTO incidents (type, location, description, reported_by) "
         "VALUES (?, ?, ?, ?)",
         (incident_type, location, description, reported_by),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return cur.lastrowid
 
 
@@ -32,3 +34,28 @@ def list_incidents(conn):
         "FROM incidents ORDER BY id DESC"
     ).fetchall()
     return [dict(r) for r in rows]
+
+# ---- Incident management (FR-09) -------------------------------------------
+STATUSES = ["Reported", "Verified", "Closed"]
+
+
+def get_incident(conn, incident_id):
+    row = conn.execute(
+        "SELECT id, type, location, description, reported_by, status, "
+        "created_at FROM incidents WHERE id = ?", (incident_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def set_status(conn, incident_id, status):
+    """Does not commit; the caller commits together with the audit entry."""
+    conn.execute("UPDATE incidents SET status = ? WHERE id = ?",
+                 (status, incident_id))
+
+
+def update_fields(conn, incident_id, fields):
+    """Update type / location / description. Does not commit."""
+    for column in ("type", "location", "description"):
+        if column in fields:
+            conn.execute(
+                "UPDATE incidents SET " + column + " = ? WHERE id = ?",
+                (fields[column], incident_id))
