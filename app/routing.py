@@ -16,16 +16,26 @@ AVG_SPEED_KMPH = 30.0
 CONGESTION_PENALTY = 1.5  # a road at 100% density costs 2.5x its distance
 
 
-def build_graph():
+def edges(conn=None):
+    """Road links. With a database connection they come from the road_links
+    table, so new roads can be added without changing code (NFR-06). Without
+    one, the built-in network is used."""
+    if conn is None:
+        return list(EDGES)
+    rows = conn.execute("SELECT a, b, km FROM road_links").fetchall()
+    return [(row["a"], row["b"], row["km"]) for row in rows] or list(EDGES)
+
+
+def build_graph(conn=None):
     graph = {}
-    for a, b, km in EDGES:
+    for a, b, km in edges(conn):
         graph.setdefault(a, []).append((b, km))
         graph.setdefault(b, []).append((a, km))
     return graph
 
 
-def known_places():
-    return sorted(build_graph().keys())
+def known_places(conn=None):
+    return sorted(build_graph(conn).keys())
 
 
 def edge_cost(km, a, b, density, penalty=CONGESTION_PENALTY):
@@ -37,11 +47,11 @@ def edge_cost(km, a, b, density, penalty=CONGESTION_PENALTY):
 
 
 def find_route(source, destination, density=None, penalty=CONGESTION_PENALTY,
-               speed=AVG_SPEED_KMPH, avoid=None):
+               speed=AVG_SPEED_KMPH, avoid=None, graph=None):
     """Least-cost route (Dijkstra). `density` maps place name -> 0..100.
     `avoid` is a set of places to stay away from (never the source or
     destination). Returns None if no route."""
-    graph = build_graph()
+    graph = graph if graph is not None else build_graph()
     avoid = set(avoid or ()) - {source, destination}
     if source not in graph or destination not in graph:
         return None
@@ -77,7 +87,8 @@ EMERGENCY_SPEED_KMPH = 50.0   # emergency vehicles travel faster
 EMERGENCY_PENALTY = 0.4       # and are slowed far less by traffic
 
 
-def find_emergency_route(source, destination, density=None, blocked=None):
+def find_emergency_route(source, destination, density=None, blocked=None,
+                         graph=None):
     """Fastest route for an emergency vehicle.
 
     Uses the same live congestion data as normal routing, but with a smaller
@@ -87,14 +98,14 @@ def find_emergency_route(source, destination, density=None, blocked=None):
     """
     route = find_route(source, destination, density,
                        penalty=EMERGENCY_PENALTY, speed=EMERGENCY_SPEED_KMPH,
-                       avoid=blocked)
+                       avoid=blocked, graph=graph)
     if route is None and blocked:
         route = find_route(source, destination, density,
                            penalty=EMERGENCY_PENALTY,
-                           speed=EMERGENCY_SPEED_KMPH)
+                           speed=EMERGENCY_SPEED_KMPH, graph=graph)
     if route is None:
         return None
-    normal = find_route(source, destination, density)
+    normal = find_route(source, destination, density, graph=graph)
     route["emergency"] = True
     route["normal_eta_minutes"] = normal["eta_minutes"] if normal else None
     route["avoided"] = sorted(set(blocked or ()) - set(route["path"]))

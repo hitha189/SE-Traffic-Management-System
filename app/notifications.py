@@ -15,6 +15,8 @@ def init_notifications(conn):
             PRIMARY KEY (username, area)
         )"""
     )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_area "
+                 "ON subscriptions (area)")
     conn.execute(
         """CREATE TABLE IF NOT EXISTS notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,12 +27,14 @@ def init_notifications(conn):
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )"""
     )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_notifications_user "
+                 "ON notifications (username)")
     conn.commit()
 
 
-def nearby_areas(area):
+def nearby_areas(conn, area):
     """The area itself plus the places directly connected to it by road."""
-    graph = routing.build_graph()
+    graph = routing.build_graph(conn)
     near = {area}
     for neighbour, _km in graph.get(area, []):
         near.add(neighbour)
@@ -56,7 +60,7 @@ def get_subscriptions(conn, username):
 def notify_for_alert(conn, alert_id, location, message):
     """Create a notification for every user subscribed to the alert's area or
     a nearby area. Does not commit. Returns the usernames notified."""
-    near = sorted(nearby_areas(location))
+    near = sorted(nearby_areas(conn, location))
     marks = ",".join("?" for _ in near)
     rows = conn.execute(
         "SELECT DISTINCT username FROM subscriptions WHERE area IN (" +

@@ -33,7 +33,7 @@ def init_emergency(conn):
 
 def blocked_places(conn):
     """Places with an open (not Closed) roadblock incident."""
-    known = set(routing.known_places())
+    known = set(routing.known_places(conn))
     rows = conn.execute(
         "SELECT location FROM incidents WHERE type = 'Roadblock' "
         "AND status != 'Closed'").fetchall()
@@ -44,7 +44,8 @@ def plan_route(conn, source, destination):
     roads = traffic.list_roads(conn)
     density = {r["name"]: r["density"] for r in roads}
     return routing.find_emergency_route(
-        source, destination, density, blocked=blocked_places(conn))
+        source, destination, density, blocked=blocked_places(conn),
+        graph=routing.build_graph(conn))
 
 
 def create_request(conn, username, vehicle_id, source, destination, route):

@@ -59,3 +59,9 @@ def set_state(conn, signal_id, new_state, actor):
         (new_state, actor, signal_id),
     )
     return old
+
+
+def add_signal(conn, location):
+    """Give a new junction its signal (starts Red). Does not commit."""
+    conn.execute("INSERT OR IGNORE INTO signals (location, state) "
+                 "VALUES (?, 'Red')", (location,))

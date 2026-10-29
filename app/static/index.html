@@ -39,6 +39,14 @@
     button.small { padding: 5px 10px; margin: 2px 4px 2px 0; font-size: 14px; }
     .checks label { display: inline-block; font-weight: normal; margin-right: 14px; }
     .checks input { width: auto; margin-right: 4px; }
+    .tag.Available { background: #2e7d32; } .tag.Limited { background: #f9a825; color: #222; } .tag.Full { background: #c62828; }
+    .bar { background: #e0e4ea; border-radius: 4px; height: 10px; min-width: 70px; }
+    .bar span { display: block; height: 10px; border-radius: 4px; }
+    .cards { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+    .card { flex: 1 1 220px; background: #f4f6f8; border-radius: 6px; padding: 8px 12px; }
+    .card h4 { margin: 0 0 6px; }
+    .ok { color: #2e7d32; font-weight: bold; } .bad { color: #b00020; font-weight: bold; }
+    #map .nomap { padding: 20px; color: #555; }
     .scroll { max-height: 260px; overflow-y: auto; overflow-x: auto; }
     @media (max-width: 600px) {
       #map { height: 50vh; margin: 10px 8px; }
@@ -126,6 +134,14 @@
       <div id="noteList"></div>
     </div>
 
+    <div class="box wide">
+      <h3>Parking</h3>
+      <p class="help">Parking areas and the spaces free right now. Numbers change as cars come and go.</p>
+      <button class="secondary" onclick="loadParking()">Refresh parking</button>
+      <span id="pmsg" class="help"></span>
+      <div id="parkList" class="scroll"></div>
+    </div>
+
     <div id="emergencyPanel" class="box wide" style="display:none">
       <h3>Emergency vehicle priority</h3>
       <p class="help">Enter your vehicle ID and trip. You get the fastest route and the signals on it turn green.</p>
@@ -162,6 +178,64 @@
         <button class="secondary" onclick="loadAudit()">Refresh log</button>
         <div id="auditTable" class="scroll"></div>
       </div>
+
+      <div class="box wide">
+        <h3>Admin: traffic analytics</h3>
+        <p class="help">Traffic flow, congestion, incidents and patterns, worked out from the stored readings. Click Refresh traffic at the top a few times first so there is history to analyse.</p>
+        <button class="secondary" onclick="loadAnalytics()">Show analytics</button>
+        <div id="analyticsBox"></div>
+      </div>
+      <div class="box wide">
+        <h3>Admin: reports</h3>
+        <p class="help">A report is a saved snapshot of traffic, incidents, alerts, signals and parking. Generate one, then download it.</p>
+        <label for="rtitle">Report title (optional)</label>
+        <input id="rtitle" maxlength="100" placeholder="For example: Weekly traffic report">
+        <button onclick="generateReport()">Generate report</button>
+        <p id="repmsg" class="status"></p>
+        <div id="reportList" class="scroll"></div>
+      </div>
+      <div class="box wide">
+        <h3>Admin: system health</h3>
+        <p class="help">Check that the system is up and that its records agree with each other.</p>
+        <button class="secondary" onclick="loadStatus()">Check system</button>
+        <button class="secondary" onclick="runConsistency()">Check data consistency</button>
+        <div id="statusBox"></div>
+      </div>
+      <div class="box wide">
+        <h3>Admin: grow the network</h3>
+        <p class="help">Add a new road and join it to one existing road. It appears on the map, in routes, signals and alerts straight away.</p>
+        <label for="nname">New road name</label>
+        <input id="nname" maxlength="50" placeholder="For example: Hebbal">
+        <label for="nlat">Latitude</label>
+        <input id="nlat" inputmode="decimal" placeholder="For example: 13.0358">
+        <label for="nlng">Longitude</label>
+        <input id="nlng" inputmode="decimal" placeholder="For example: 77.597">
+        <label for="nlink">Connects to</label>
+        <select id="nlink"></select>
+        <label for="nkm">Distance in km</label>
+        <input id="nkm" inputmode="decimal" placeholder="For example: 7.5">
+        <button onclick="addRoad()">Add road</button>
+        <p id="nrmsg" class="status"></p>
+        <h4>Add a parking area</h4>
+        <label for="pname">Parking area name</label>
+        <input id="pname" maxlength="80" placeholder="For example: Hebbal Metro Parking">
+        <label for="ploc">On road</label>
+        <select id="ploc"></select>
+        <label for="pcap">Number of spaces</label>
+        <input id="pcap" inputmode="numeric" placeholder="For example: 80">
+        <button onclick="addParking()">Add parking area</button>
+        <p id="paddmsg" class="status"></p>
+      </div>
+    </div>
+
+    <div class="box wide">
+      <h3>My data</h3>
+      <p class="help">We keep only your username, email, the areas you follow, your recent routes and incidents you reported. Route history is deleted after 30 days.</p>
+      <button class="secondary" onclick="downloadMyData()">Download my data</button>
+      <label for="delpw">To delete your account, type your password</label>
+      <input id="delpw" type="password" autocomplete="current-password">
+      <button onclick="deleteAccount()" style="background:#b00020">Delete my account</button>
+      <p id="mydmsg" class="status"></p>
     </div>
   </div>
 
@@ -226,9 +300,10 @@
         loadPlaces();
         loadAreas();
         loadNotifications();
+        loadParking();
         document.getElementById("adminPanel").style.display = role === "admin" ? "block" : "none";
         document.getElementById("emergencyPanel").style.display = role === "emergency" ? "block" : "none";
-        if (role === "admin") { loadSignals(); loadIncidentsAdmin(); loadAudit(); }
+        if (role === "admin") { loadSignals(); loadIncidentsAdmin(); loadAudit(); loadReports(); }
         if (role === "emergency") loadMyRequests();
       } catch (e) {
         msg.style.color = "#b00020";
@@ -248,8 +323,21 @@
       msg.textContent = "You have been logged out.";
     }
 
+    function mapReady() {
+      return map !== null && typeof L !== "undefined";
+    }
+
     function initMap() {
       if (map) return;
+      if (typeof L === "undefined") {
+        const box = document.getElementById("map");
+        box.replaceChildren();
+        const note = document.createElement("p");
+        note.className = "nomap";
+        note.textContent = "The map could not load (check your internet connection). Traffic, routes, parking and everything else still work.";
+        box.appendChild(note);
+        return;
+      }
       map = L.map("map").setView([12.9716, 77.5946], 12);
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "&copy; OpenStreetMap contributors"
@@ -269,9 +357,10 @@
           return;
         }
         const data = await r.json();
-        layer.clearLayers();
+        if (mapReady()) layer.clearLayers();
         data.roads.forEach(road => {
           roadPoints[road.name] = [road.lat, road.lng];
+          if (!mapReady()) return;
           L.circleMarker([road.lat, road.lng], {
             radius: 8 + road.density / 8,
             color: colors[road.congestion],
@@ -295,7 +384,7 @@
       });
       if (r.status !== 200) return;
       const data = await r.json();
-      [rsrc, rdst, esrc, edst].forEach(sel => {
+      [rsrc, rdst, esrc, edst, nlink, ploc].forEach(sel => {
         sel.innerHTML = "";
         data.places.forEach(p => {
           const o = document.createElement("option");
@@ -325,10 +414,7 @@
         m.textContent = data.path.join(" → ") + " | " + data.distance_km +
                         " km | about " + data.eta_minutes + " min (" +
                         data.free_flow_minutes + " min without traffic)";
-        if (routeLine) map.removeLayer(routeLine);
-        const pts = data.path.map(n => roadPoints[n]).filter(Boolean);
-        routeLine = L.polyline(pts, { color: "#1f3a5f", weight: 5 }).addTo(map);
-        map.fitBounds(routeLine.getBounds(), { padding: [40, 40] });
+        drawRoute(data.path, "#1f3a5f");
       } catch (e) {
         m.style.color = "#b00020";
         m.textContent = "Something went wrong. Please try again.";
@@ -394,6 +480,7 @@
     }
 
     function drawRoute(path, color) {
+      if (!mapReady()) return;
       if (routeLine) map.removeLayer(routeLine);
       const pts = path.map(n => roadPoints[n]).filter(Boolean);
       routeLine = L.polyline(pts, { color: color, weight: 5 }).addTo(map);
@@ -612,6 +699,195 @@
         table.appendChild(tr);
       });
       box.appendChild(table);
+    }
+
+    // ---------- Member B: shared helpers ----------
+    function kv(rows) {
+      const table = el("table");
+      rows.forEach(([k, v]) => {
+        const tr = el("tr");
+        tr.appendChild(el("th", k));
+        tr.appendChild(el("td", v));
+        table.appendChild(tr);
+      });
+      return table;
+    }
+
+    function card(title, content) {
+      const c = el("div", null, "card");
+      c.appendChild(el("h4", title));
+      c.appendChild(content);
+      return c;
+    }
+
+    function pairs(obj) {
+      const text = Object.entries(obj).map(([k, v]) => k + ": " + v).join(", ");
+      return text || "none";
+    }
+
+    async function downloadFile(url, filename, msgId) {
+      const r = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+      if (!r.ok) { say(msgId, "Download failed.", false); return; }
+      const blob = await r.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
+    }
+
+    // ---------- Parking (FR-16) ----------
+    async function loadParking() {
+      const res = await api("GET", "/api/parking");
+      if (res.status !== 200) return;
+      const box = document.getElementById("parkList");
+      const s = res.data.summary;
+      document.getElementById("pmsg").textContent = s.total_available + " of " + s.total_capacity + " spaces free";
+      const table = el("table");
+      const head = el("tr");
+      ["Parking area", "Free spaces", "Status"].forEach(h => head.appendChild(el("th", h)));
+      table.appendChild(head);
+      res.data.parking.forEach(p => {
+        const tr = el("tr");
+        const name = el("td", p.name);
+        name.appendChild(el("div", p.location, "help"));
+        tr.appendChild(name);
+        const free = el("td", p.available + " / " + p.capacity);
+        const bar = el("div", null, "bar");
+        const fill = el("span");
+        fill.style.width = p.occupancy_percent + "%";
+        fill.style.background = p.status === "Full" ? "#c62828" : p.status === "Limited" ? "#f9a825" : "#2e7d32";
+        bar.appendChild(fill);
+        free.appendChild(bar);
+        tr.appendChild(free);
+        const st = el("td");
+        st.appendChild(el("span", p.status, "tag " + p.status));
+        tr.appendChild(st);
+        table.appendChild(tr);
+      });
+      box.replaceChildren(table);
+    }
+
+    async function addParking() {
+      const res = await api("POST", "/api/admin/parking", {
+        name: pname.value, location: ploc.value, capacity: Number(pcap.value)
+      });
+      say("paddmsg", res.status === 201 ? "Added " + res.data.parking_area.name + "." : res.data.error, res.status === 201);
+      if (res.status === 201) { pname.value = ""; pcap.value = ""; loadParking(); }
+    }
+
+    // ---------- Analytics (FR-17) ----------
+    async function loadAnalytics() {
+      const res = await api("GET", "/api/admin/analytics");
+      if (res.status !== 200) return;
+      const a = res.data, box = document.getElementById("analyticsBox");
+      const f = a.traffic_flow, c = a.congestion, i = a.incidents, p = a.patterns;
+      const cards = el("div", null, "cards");
+      cards.appendChild(card("Traffic flow", kv([
+        ["Average density", f.average_density + "%"],
+        ["Busiest", f.busiest ? f.busiest.name + " (" + f.busiest.density + "%)" : "-"],
+        ["Quietest", f.quietest ? f.quietest.name + " (" + f.quietest.density + "%)" : "-"],
+        ["Roads by level", pairs(f.levels)]
+      ])));
+      cards.appendChild(card("Congestion", kv([["Readings analysed", c.readings_analysed]].concat(
+        c.most_congested.map(r => [r.name, "heavy in " + r.high_percent + "% of " + r.readings + " readings"])))));
+      cards.appendChild(card("Incidents", kv([
+        ["Total / open", i.total + " / " + i.open],
+        ["By type", pairs(i.by_type)],
+        ["By status", pairs(i.by_status)],
+        ["Hotspots", i.hotspots.map(h => h.location + " (" + h.incidents + ")").join(", ") || "none"]
+      ])));
+      cards.appendChild(card("Patterns", kv(p.peak_hour === null ? [["History", p.note]] : [
+        ["Peak hour (UTC)", p.peak_hour + ":00"],
+        ["Quietest hour (UTC)", p.quietest_hour + ":00"]
+      ].concat(p.road_trends.map(t => [t.road, t.trend + " (" + t.earlier_average + "% to " + t.recent_average + "%)"])))));
+      box.replaceChildren(cards);
+    }
+
+    // ---------- Reports (FR-18) ----------
+    async function generateReport() {
+      const res = await api("POST", "/api/admin/reports", { title: rtitle.value });
+      say("repmsg", res.status === 201 ? "Report #" + res.data.report.id + " generated." : res.data.error, res.status === 201);
+      if (res.status === 201) { rtitle.value = ""; loadReports(); loadAudit(); }
+    }
+
+    async function loadReports() {
+      const res = await api("GET", "/api/admin/reports");
+      if (res.status !== 200) return;
+      const box = document.getElementById("reportList");
+      if (!res.data.reports.length) { box.replaceChildren(el("p", "No reports yet.", "help")); return; }
+      const table = el("table");
+      const head = el("tr");
+      ["#", "Title", "By", "Created (UTC)", ""].forEach(h => head.appendChild(el("th", h)));
+      table.appendChild(head);
+      res.data.reports.forEach(r => {
+        const tr = el("tr");
+        tr.appendChild(el("td", r.id));
+        tr.appendChild(el("td", r.title));
+        tr.appendChild(el("td", r.generated_by));
+        tr.appendChild(el("td", r.created_at));
+        const act = el("td");
+        act.appendChild(btn("Download", () => downloadFile("/api/admin/reports/" + r.id + "?format=text", "report-" + r.id + ".txt", "repmsg")));
+        tr.appendChild(act);
+        table.appendChild(tr);
+      });
+      box.replaceChildren(table);
+    }
+
+    // ---------- Availability and consistency (NFR-03, NFR-09) ----------
+    async function loadStatus() {
+      const res = await api("GET", "/api/admin/status");
+      if (res.status !== 200) return;
+      const s = res.data;
+      const h = Math.floor(s.uptime_seconds / 3600), m = Math.floor((s.uptime_seconds % 3600) / 60);
+      document.getElementById("statusBox").replaceChildren(kv([
+        ["Database", s.database],
+        ["Up for", h + " h " + m + " min"],
+        ["Requests served", s.requests],
+        ["Server errors", s.server_errors],
+        ["Availability", s.availability_percent + "% (target " + s.target_percent + "%)"]
+      ]));
+    }
+
+    async function runConsistency() {
+      const res = await api("GET", "/api/admin/consistency");
+      if (res.status !== 200) return;
+      const box = document.getElementById("statusBox");
+      const verdict = el("p", res.data.consistent
+        ? "All records agree (" + res.data.checks_run + " checks passed)."
+        : res.data.problems.length + " problem(s) found:", res.data.consistent ? "ok" : "bad");
+      box.replaceChildren(verdict);
+      res.data.problems.forEach(p => box.appendChild(el("p", p)));
+    }
+
+    // ---------- Growth (NFR-06) ----------
+    async function addRoad() {
+      const res = await api("POST", "/api/admin/roads", {
+        name: nname.value, lat: Number(nlat.value), lng: Number(nlng.value),
+        connects_to: [{ to: nlink.value, km: Number(nkm.value) }]
+      });
+      say("nrmsg", res.status === 201 ? res.data.road.name + " added and linked to " + nlink.value + "." : res.data.error, res.status === 201);
+      if (res.status === 201) {
+        nname.value = nlat.value = nlng.value = nkm.value = "";
+        await loadTraffic(); loadPlaces(); loadAreas(); loadSignals(); loadAudit();
+      }
+    }
+
+    // ---------- My data (NFR-10) ----------
+    function downloadMyData() {
+      downloadFile("/api/me/export", "my-data.json", "mydmsg");
+    }
+
+    async function deleteAccount() {
+      if (!confirm("Delete your account and personal data? This cannot be undone.")) return;
+      const res = await api("DELETE", "/api/me", { password: delpw.value });
+      if (res.status !== 200) { say("mydmsg", res.data.error, false); return; }
+      delpw.value = "";
+      doLogout();
+      msg.style.color = "#2e7d32";
+      msg.textContent = "Your account and personal data have been deleted.";
     }
   </script>
 </body>

@@ -2,7 +2,8 @@ import json
 
 COUNTED_TABLES = ["users", "roads", "incidents", "routes", "signals",
                   "alerts", "notifications", "emergency_requests",
-                  "audit_log"]
+                  "audit_log", "parking_areas", "reports",
+                  "traffic_history"]
 
 
 def init_storage(conn):
@@ -18,7 +19,18 @@ def init_storage(conn):
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )"""
     )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_routes_user "
+                 "ON routes (username, id)")
     conn.commit()
+
+
+def purge_old_routes(conn, days):
+    """Delete route history older than `days` days (NFR-10: location data is
+    not kept longer than needed). Does not commit. Returns rows deleted."""
+    cur = conn.execute(
+        "DELETE FROM routes WHERE created_at < datetime('now', ?)",
+        ("-%d days" % days,))
+    return cur.rowcount
 
 
 def save_route(conn, username, source, destination, route):

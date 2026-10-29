@@ -8,16 +8,34 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from werkzeug.exceptions import HTTPException
 from werkzeug.security import generate_password_hash, check_password_hash
 
+from types import SimpleNamespace
+
 import alerts
 import audit
+import consistency
+import datasources
 import emergency
+import health
 import incidents
+import network
 import notifications
+import parking
+import privacy
+import reports
 import routing
 import signals
 import storage
 import traffic
 from validation import clean_str, is_vehicle_id, parse_int
+
+# Feature modules written as Blueprints (NFR-07). They never import this file;
+# everything they need is handed to them in `deps` (see the end of this file).
+import health_api
+import integrations_api
+import network_api
+import parking_api
+import privacy_api
+import reporting_api
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get(
@@ -85,6 +103,12 @@ def init_db():
     alerts.init_alerts(conn)
     notifications.init_notifications(conn)
     emergency.init_emergency(conn)
+    network.init_network(conn)
+    parking.init_parking(conn)
+    reports.init_reports(conn)
+    storage.purge_old_routes(conn, privacy.ROUTE_RETENTION_DAYS)
+    conn.commit()
+    consistency.install_triggers(conn)  # last: needs every table to exist
     conn.close()
 
 
@@ -111,6 +135,12 @@ def require_role(*roles):
         def wrapper(*args, **kwargs):
             user = read_token()
             if user is None:
+                return jsonify({"error": "Authentication required"}), 401
+            conn = get_db()
+            exists = conn.execute("SELECT 1 FROM users WHERE username = ?",
+                                  (user["username"],)).fetchone()
+            conn.close()
+            if exists is None:
                 return jsonify({"error": "Authentication required"}), 401
             if user["role"] not in roles:
                 return jsonify({"error": "Access denied"}), 403
@@ -165,6 +195,7 @@ def add_security_headers(response):
         if elapsed_ms > RESPONSE_TIME_TARGET_MS:
             app.logger.warning("Slow request %s took %.0f ms",
                                request.path, elapsed_ms)
+    health.record(response.status_code)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     if request.path.startswith("/api/"):
@@ -262,7 +293,7 @@ def emergency_ping():
 @require_role("user", "admin", "emergency")
 def get_traffic():
     with db_session() as conn:
-        traffic.refresh_simulated(conn)
+        datasources.refresh(conn, "traffic")
         roads = traffic.list_roads(conn)
         alerts.sync_congestion_alerts(conn, roads)
     return jsonify({"roads": roads}), 200
@@ -299,13 +330,19 @@ def get_incidents():
     conn = get_db()
     items = incidents.list_incidents(conn)
     conn.close()
+    if read_token()["role"] != "admin":
+        for item in items:  # only admins see who reported an incident
+            item.pop("reported_by", None)
     return jsonify({"incidents": items}), 200
 
 
 @app.route("/api/places", methods=["GET"])
 @require_role("user", "admin", "emergency")
 def get_places():
-    return jsonify({"places": routing.known_places()}), 200
+    conn = get_db()
+    places = routing.known_places(conn)
+    conn.close()
+    return jsonify({"places": places}), 200
 
 
 @app.route("/api/route", methods=["GET"])
@@ -321,7 +358,8 @@ def get_route():
     roads = traffic.list_roads(conn)
     density = {r["name"]: r["density"] for r in roads}
 
-    route = routing.find_route(source, destination, density)
+    route = routing.find_route(source, destination, density,
+                               graph=routing.build_graph(conn))
     if route is None:
         conn.close()
         return jsonify({"error": "No route found for these locations"}), 404
@@ -453,19 +491,21 @@ def get_alerts():
 def get_subscriptions():
     conn = get_db()
     areas = notifications.get_subscriptions(conn, current_user())
+    available = routing.known_places(conn)
     conn.close()
-    return jsonify({"areas": areas, "available": routing.known_places()}), 200
+    return jsonify({"areas": areas, "available": available}), 200
 
 
 @app.route("/api/subscriptions", methods=["PUT"])
 @require_role("user", "admin", "emergency")
 def set_subscriptions():
     areas = json_body().get("areas")
-    known = set(routing.known_places())
-    if (not isinstance(areas, list) or len(areas) > len(known)
-            or any(not isinstance(a, str) or a not in known for a in areas)):
-        return jsonify({"error": "Choose areas from the list"}), 400
     with db_session() as conn:
+        known = set(routing.known_places(conn))
+        if (not isinstance(areas, list) or len(areas) > len(known)
+                or any(not isinstance(a, str) or a not in known
+                       for a in areas)):
+            return jsonify({"error": "Choose areas from the list"}), 400
         notifications.set_subscriptions(conn, current_user(), areas)
     return jsonify({"areas": sorted(set(areas))}), 200
 
@@ -491,8 +531,8 @@ def read_notification(notification_id):
 
 
 # ---- Emergency priority and routing (FR-14, FR-15) ------------------------------
-def _valid_places(source, destination):
-    known = set(routing.known_places())
+def _valid_places(conn, source, destination):
+    known = set(routing.known_places(conn))
     return (source in known and destination in known
             and source != destination)
 
@@ -502,9 +542,10 @@ def _valid_places(source, destination):
 def emergency_route():
     source = clean_str(request.args.get("source"))
     destination = clean_str(request.args.get("destination"))
-    if not _valid_places(source, destination):
-        return jsonify({"error": "Enter a valid source and destination"}), 400
     conn = get_db()
+    if not _valid_places(conn, source, destination):
+        conn.close()
+        return jsonify({"error": "Enter a valid source and destination"}), 400
     route = emergency.plan_route(conn, source, destination)
     conn.close()
     if route is None:
@@ -522,11 +563,11 @@ def emergency_priority():
     if not is_vehicle_id(vehicle_id):
         return jsonify({"error": "Vehicle ID must be 3-20 letters, "
                         "digits or dashes"}), 400
-    if not _valid_places(source, destination):
-        return jsonify({"error": "Enter a valid source and destination"}), 400
-
     username = current_user()
     with db_session() as conn:
+        if not _valid_places(conn, source, destination):
+            return jsonify(
+                {"error": "Enter a valid source and destination"}), 400
         route = emergency.plan_route(conn, source, destination)
         if route is None:
             return jsonify({"error": "No route found for these locations"}), 404
@@ -587,6 +628,22 @@ def get_audit_log():
         limit=limit)
     conn.close()
     return jsonify({"entries": items}), 200
+
+
+# =============================================================================
+# Sprint 2, member B: feature modules registered as Blueprints (NFR-07)
+# =============================================================================
+deps = SimpleNamespace(
+    get_db=get_db,
+    db_session=db_session,
+    require_role=require_role,
+    current_user=current_user,
+    json_body=json_body,
+    check_password_hash=check_password_hash,
+)
+for _module in (parking_api, reporting_api, integrations_api, network_api,
+                health_api, privacy_api):
+    app.register_blueprint(_module.create_blueprint(deps))
 
 
 if __name__ == "__main__":
