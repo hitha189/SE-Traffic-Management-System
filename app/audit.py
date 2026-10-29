@@ -17,6 +17,10 @@ def init_audit(conn):
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )"""
     )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_action "
+                 "ON audit_log (action)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_actor "
+                 "ON audit_log (actor)")
     conn.execute(
         """CREATE TRIGGER IF NOT EXISTS audit_no_update
         BEFORE UPDATE ON audit_log

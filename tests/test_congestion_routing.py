@@ -38,7 +38,7 @@ def test_route_api_uses_congestion_data(tmp_path):
     client = make_client(tmp_path)
     headers = login_headers(client)
     conn = tms.get_db()
-    conn.execute("UPDATE roads SET density = 100 "
+    conn.execute("UPDATE roads SET density = 100, congestion = 'High' "
                  "WHERE name IN ('MG Road', 'Indiranagar')")
     conn.commit()
     conn.close()

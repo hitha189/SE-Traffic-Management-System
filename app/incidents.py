@@ -13,6 +13,10 @@ def init_incidents(conn):
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )"""
     )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_incidents_status "
+                 "ON incidents (status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_incidents_location "
+                 "ON incidents (location)")
     conn.commit()
 
 
@@ -28,10 +32,13 @@ def add_incident(conn, incident_type, location, description, reported_by,
     return cur.lastrowid
 
 
-def list_incidents(conn):
+LIST_LIMIT = 500  # newest incidents returned; keeps responses fast (NFR-06)
+
+
+def list_incidents(conn, limit=LIST_LIMIT):
     rows = conn.execute(
         "SELECT id, type, location, description, reported_by, status, created_at "
-        "FROM incidents ORDER BY id DESC"
+        "FROM incidents ORDER BY id DESC LIMIT ?", (limit,)
     ).fetchall()
     return [dict(r) for r in rows]
 

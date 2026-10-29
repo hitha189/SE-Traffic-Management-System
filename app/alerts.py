@@ -32,6 +32,10 @@ def init_alerts(conn):
             cleared_at TEXT
         )"""
     )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_active "
+                 "ON alerts (active)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_source "
+                 "ON alerts (source_type, source_id)")
     conn.commit()
 
 
