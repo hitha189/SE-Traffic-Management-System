@@ -1,9 +1,9 @@
 """The nine cases from Traffic_Management_System_Test_Plan.pdf, automated.
 
-Each test is named after its Test Plan ID (UT-01 ... ST-03) so the Test Case
-Document (docs/TEST_CASES.md) and the reports can point to it. Where the
-plan's sample data does not exist in the prototype, the nearest real data is
-used and the difference is listed in docs/TEST_CASES.md:
+Each test is named after its Test Plan ID (UT-01 ... ST-03) so the Test Plan
+and the reports can point to it. Where the plan's sample data does not exist
+in the prototype, the nearest real data is used and the difference is listed
+in the updated Test Plan PDF:
 
 - "Junction-01" -> the signal at Majestic (signals are named after junctions)
 - "City Hospital" -> Whitefield (destinations must be places on the network)
